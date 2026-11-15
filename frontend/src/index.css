@@ -1,0 +1,275 @@
+/* ═══════════════════════════════════════════════════════════════
+   AI/ML Lab Portal — Global styles
+   ───────────────────────────────────────────────────────────────
+   This file defines NO colours. Every custom property below is written
+   onto <html> at runtime by ThemeProvider (see theme/ThemeProvider.tsx),
+   so light and dark come from one source and this stylesheet never has
+   to know which theme is active.
+
+   The fallbacks in `var(--x, …)` cover the single frame before React
+   mounts. They intentionally match the dark palette, because the page
+   background painted by index.html is dark.
+
+   Most of the portal's polish lives here rather than in the pages. Every
+   page uses AntD tables, cards, tabs and inputs, so styling those once
+   here lifts all of them together — and keeps a page from drifting into
+   its own look the moment someone edits it.
+═══════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+:root {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--text, #e8edf5);
+  background-color: var(--bg, #05080f);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /* Numerals line up in columns wherever they are compared. */
+  font-variant-numeric: tabular-nums;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  background-color: var(--bg, #05080f);
+}
+
+body { overflow-x: hidden; }
+
+a { color: var(--accent, #58a6ff); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── Scrollbar ──────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border, #1c2538);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong, #2d3d58); background-clip: content-box; }
+
+/* ── Layout ─────────────────────────────────────────────────── */
+.ant-layout,
+.ant-layout-content { background: var(--bg) !important; }
+
+/* ── Sidebar nav ────────────────────────────────────────────── */
+.ant-menu-item-selected {
+  background: var(--selected-bg) !important;
+  box-shadow: inset 3px 0 0 var(--brand) !important;
+  font-weight: 600;
+}
+.ant-menu-item:hover { background: var(--hover-bg) !important; }
+.ant-menu-item { border-radius: 8px !important; }
+
+/* ── Cards ──────────────────────────────────────────────────── */
+/* A resting shadow, not only one on hover: without it every surface sits
+   flat against the background and the page reads as a wall of boxes. */
+.ant-card,
+.app-surface {
+  box-shadow: var(--shadow-sm);
+}
+.app-card {
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.app-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lg) !important;
+  border-color: var(--accent) !important;
+}
+
+/* Top-border accent bar for cards */
+.app-card-accent::before {
+  content: '';
+  display: block;
+  height: 3px;
+  border-radius: 6px 6px 0 0;
+  position: absolute;
+  top: 0; left: 0; right: 0;
+}
+
+.ant-card-head {
+  border-bottom-color: var(--border-subtle) !important;
+  min-height: 48px !important;
+}
+.ant-card-head-title { font-weight: 600 !important; }
+
+/* ── Badge ──────────────────────────────────────────────────── */
+.gh-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  height: 22px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 22px;
+  white-space: nowrap;
+}
+
+/* ── Tables ─────────────────────────────────────────────────── */
+/* Tables carry most of this portal's content, so they get the most care:
+   a quiet header that reads as a label rather than a row, hairline
+   separators, and a hover that tracks the pointer without shouting. */
+.ant-table {
+  border-radius: 10px;
+}
+.ant-table-thead > tr > th {
+  background: var(--surface-sunken) !important;
+  color: var(--text-muted) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border) !important;
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+}
+/* AntD draws a divider between header cells; it adds noise at this weight. */
+.ant-table-thead > tr > th::before { display: none !important; }
+
+.ant-table-tbody > tr > td {
+  border-bottom: 1px solid var(--border-subtle) !important;
+}
+.ant-table-tbody > tr:last-child > td { border-bottom: none !important; }
+.ant-table-tbody > tr:hover > td { background: var(--hover-bg) !important; }
+
+.ant-table-placeholder > td { border-bottom: none !important; }
+.ant-pagination-item-active { border-color: var(--accent) !important; }
+
+/* Rows an administrator needs to notice, used by the attendance tables. */
+.att-row-flag > td { background: var(--danger-bg) !important; }
+.att-row-flag:hover > td { background: var(--danger-bg) !important; }
+
+/* ── Tabs ───────────────────────────────────────────────────── */
+.ant-tabs-tab { font-weight: 500 !important; }
+.ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn { font-weight: 700 !important; }
+.ant-tabs-top > .ant-tabs-nav::before { border-bottom-color: var(--border-subtle) !important; }
+.ant-tabs-ink-bar { border-radius: 2px 2px 0 0; height: 3px !important; }
+
+/* ── Buttons ────────────────────────────────────────────────── */
+.ant-btn { font-weight: 500; }
+.ant-btn-primary { box-shadow: var(--shadow-sm); }
+.ant-btn-primary:not(:disabled):hover { box-shadow: var(--shadow-md); }
+
+/* ── Tags ───────────────────────────────────────────────────── */
+.ant-tag { border-radius: 6px; font-weight: 500; }
+
+/* ── Modals, drawers, popovers ──────────────────────────────── */
+.ant-modal-content,
+.ant-drawer-content { border-radius: 12px; }
+.ant-drawer-right .ant-drawer-content { border-radius: 12px 0 0 12px; }
+.ant-modal-header { border-bottom: 1px solid var(--border-subtle); }
+.ant-drawer-header { border-bottom-color: var(--border-subtle) !important; }
+
+/* Dropdown surfaces sit above cards, so they need the raised tone to
+   separate from whatever is behind them. */
+.ant-select-dropdown,
+.ant-picker-dropdown .ant-picker-panel-container,
+.ant-dropdown-menu {
+  background: var(--surface-raised) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: var(--shadow-lg) !important;
+}
+
+/* ── Form controls ──────────────────────────────────────────
+   Kept as an override because several AntD internals paint their own
+   container background. `--surface-sunken` inverts correctly between
+   themes; the previous hardcoded #070a12 would have stayed near-black
+   on a white page. */
+.ant-input,
+.ant-input-password .ant-input,
+.ant-select-selector,
+.ant-picker,
+.ant-input-number-input,
+.ant-input-affix-wrapper {
+  background: var(--surface-sunken) !important;
+  border-color: var(--border) !important;
+}
+.ant-input:hover,
+.ant-select:hover .ant-select-selector,
+.ant-picker:hover,
+.ant-input-affix-wrapper:hover { border-color: var(--border-strong) !important; }
+
+.ant-form-item-label > label {
+  color: var(--text-muted) !important;
+  font-weight: 600 !important;
+  font-size: 12px !important;
+}
+
+/* ── Alerts ─────────────────────────────────────────────────── */
+.ant-alert { border-radius: 10px; }
+
+/* ── Segmented ──────────────────────────────────────────────── */
+.ant-segmented { background: var(--surface-sunken) !important; border-radius: 8px; }
+.ant-segmented-item-selected { box-shadow: var(--shadow-sm); }
+
+/* ── Progress ───────────────────────────────────────────────── */
+.ant-progress-inner { background: var(--surface-sunken) !important; }
+
+/* ── Focus & selection ──────────────────────────────────────── */
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+::selection { background: var(--accent-bg); }
+
+/* ── Motion ─────────────────────────────────────────────────── */
+button, a, .ant-btn { transition: all 0.15s ease; }
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.page-enter { animation: fadeInUp 0.25s ease both; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+.pulse { animation: pulse 2s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Narrow screens ─────────────────────────────────────────── */
+/* Tables are the portal's main content and the first thing to break on a
+   phone; letting them scroll inside their card beats shrinking the text
+   until it cannot be read. */
+@media (max-width: 768px) {
+  :root { font-size: 13px; }
+  .ant-table { font-size: 12px; }
+  .ant-card-body { padding: 14px !important; }
+  .ant-table-thead > tr > th,
+  .ant-table-tbody > tr > td { padding: 8px 10px !important; }
+
+  /* A tab strip with eight tabs does not fit a phone. Scrolling it keeps
+     every tab reachable instead of collapsing them behind a "more" menu
+     that hides where you are. */
+  .ant-tabs-nav-wrap { overflow-x: auto !important; }
+  .ant-tabs-nav-list { flex-wrap: nowrap !important; }
+  .ant-tabs-tab { padding: 8px 12px !important; }
+
+  /* Tables declare their own horizontal scroll; make sure the page itself
+     never gains one, which is what turns a phone layout into a sideways
+     drag of the whole screen. */
+  .ant-table-wrapper { max-width: 100%; }
+  body { overflow-x: hidden; }
+
+  /* Dialogs should use the width they have rather than sitting in a narrow
+     column with margins on a small screen. */
+  .ant-modal { max-width: calc(100vw - 24px) !important; margin: 8px auto !important; }
+
+  /* Stat tiles and toolbars wrap instead of overflowing. */
+  .ant-space { flex-wrap: wrap; }
+}

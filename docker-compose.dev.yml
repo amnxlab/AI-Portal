@@ -1,0 +1,26 @@
+# ──────────────────────────────────────────────────────────────────────────────
+#  Development override — used ONLY by start-dev.sh
+#
+#  * Exposes PostgreSQL on 127.0.0.1:5432 so the native NestJS dev server
+#    (running on the host, not inside Docker) can reach the database.
+#
+#  * Adds a dev-nginx container that provides HTTP at http://portal.lan
+#    and proxies to the native NestJS (4000) and Vite (5173) dev servers.
+#    Uses network_mode: host so it can reach host loopback services directly.
+#    (host networking is only supported on Linux — the target server OS.)
+#
+#  The production compose file (docker-compose.yml) keeps the full Docker stack.
+#  Do NOT use this file in production.
+# ──────────────────────────────────────────────────────────────────────────────
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  nginx:
+    image: nginx:alpine
+    # host networking lets the container reach 127.0.0.1:4000 and :5173 directly
+    network_mode: host
+    volumes:
+      - ./nginx/nginx-dev.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: "no"

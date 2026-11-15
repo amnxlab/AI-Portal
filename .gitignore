@@ -1,0 +1,44 @@
+# TLS certificates — private keys must never be committed.
+# Run  sudo bash scripts/setup-ssl.sh  to populate this directory.
+nginx/certs/*.crt
+nginx/certs/*.key
+nginx/certs/*.pem
+
+# Allow the placeholder so the directory itself is tracked
+!nginx/certs/.gitkeep
+
+# Dev environment
+node_modules/
+dist/
+.env
+*.log
+
+# Local data, backups and large binaries — not source
+backups/
+documentations/
+uploads/
+video_tutorials/
+backend/uploads/
+backend/video_tutorials/
+launcher/
+migration/
+frontend/build/
+*.pid
+.deploy-stamp
+*.png
+*.ico
+!frontend/public/**
+!frontend/src/assets/**
+!backend/assets/**
+
+# npm cache for the containerised frontend build (see frontend/Dockerfile)
+.npm-cache/
+
+# Every variant of the env file, not just the bare name. A backup called
+# .env.bak-20261112 holds exactly the same secrets as .env and was, before
+# this line existed, about to be committed.
+.env.*
+!.env.example
+
+# Timestamped backups left by config edits. Same reasoning.
+*.bak-*

@@ -1,0 +1,156 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: aiserver_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aiserver}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-aiserver_db}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/src/database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./backend/src/database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
+    # No external port — DB reachable only from within the Docker network
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aiserver}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aiserver_backend
+    env_file: .env
+    environment:
+      DOCUMENTS_PATH: /app/documents
+      DISCORD_WEBHOOK_TASKS: ${DISCORD_WEBHOOK_TASKS:-https://discord.com/api/webhooks/000000000000000000/REPLACE_WITH_YOUR_WEBHOOK}
+      DISCORD_WEBHOOK_TICKETS: ${DISCORD_WEBHOOK_TICKETS:-}
+      DISCORD_WEBHOOK_FILES: ${DISCORD_WEBHOOK_FILES:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./uploads:/app/uploads
+      - ./video_tutorials:/app/video_tutorials
+      - ./documentations:/app/documents
+    # No external port — reached only through nginx inside the Docker network
+    expose:
+      - "4000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: aiserver_frontend
+    depends_on:
+      - backend
+    # No external port — reached only through nginx inside the Docker network
+    expose:
+      - "80"
+    restart: unless-stopped
+
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: aiserver_nginx
+    ports:
+      - "0.0.0.0:8090:80"   # legacy bookmark compat — kept alongside the standard ports below
+      - "0.0.0.0:80:80"
+      - "0.0.0.0:443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro   # mount so no rebuild needed
+      - ./nginx/certs:/etc/nginx/ssl:ro  # populated by scripts/setup-ssl.sh (optional)
+      - ./launcher:/opt/aiml-launcher:ro  # built installer served at /launcher/
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+
+  dns:
+    image: coredns/coredns:latest
+    container_name: aiserver_dns
+    command: -conf /Corefile
+    environment:
+      # All three are read by dns/Corefile. Keeping the site's values in
+      # .env, not in these files, is what makes the server portable.
+      WIFI_IP: ${WIFI_IP:?set WIFI_IP in .env to this machine's LAN address}
+      PUBLIC_HOST: ${PUBLIC_HOST:?set PUBLIC_HOST in .env}
+      ROUTER_IP: ${ROUTER_IP:?set ROUTER_IP in .env}   # read by dns/Corefile's {$WIFI_IP}
+    volumes:
+      - ./dns/Corefile:/Corefile:ro
+    # Bound to the Wi-Fi adapter's own IP, not 0.0.0.0 — this is what makes
+    # the server reachable only from the AI/ML Network, not from Ethernet,
+    # Tailscale, or anything else this machine is also connected to.
+    # Must match the static IP set by setup-dns.ps1 (also WIFI_IP in .env).
+    ports:
+      - "${WIFI_IP:?set WIFI_IP in .env to this machine's LAN address}:53:53/udp"
+      - "${WIFI_IP:?set WIFI_IP in .env to this machine's LAN address}:53:53/tcp"
+    restart: unless-stopped
+
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: aiserver_openwebui
+    ports:
+      - "0.0.0.0:9999:8080"
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:-changeme}
+      - DATABASE_URL=sqlite:///./data/openwebui.db
+    # Linux hosts don't get host.docker.internal for free (Docker Desktop
+    # provided it) — map it to the host gateway explicitly:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - openwebui_data:/app/backend/data
+    restart: unless-stopped
+
+  # ── Public entrance ─────────────────────────────────────────────────
+  # The portal is published at https://portal.example.com through a Cloudflare
+  # Tunnel rather than a port forward, because this site is behind Starlink
+  # CGNAT — there is no inbound path to forward, whatever the router is set
+  # to. cloudflared dials OUT to Cloudflare and traffic returns down that
+  # connection.
+  #
+  # Cloudflare terminates TLS at its edge with its own certificate and hands
+  # the request to nginx over the internal Docker network, so nothing is
+  # exposed on the LAN that was not exposed before.
+  #
+  # LAN clients and the RFID reader do NOT come this way: the local CoreDNS
+  # answers portal.example.com with 192.168.1.10, so they reach nginx directly
+  # and keep working when the internet does not.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: aiserver_cloudflared
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+      # Transport, made explicit so it can be changed without editing this file.
+      #
+      # The tunnel dials OUT only — there is no port forward anywhere — which
+      # is why the portal is reachable from a CGNAT uplink at all, and why a
+      # change of ISP needs nothing done to it.
+      #
+      # `auto` prefers QUIC (UDP 7844) and falls back to HTTP/2 over TCP 443.
+      # Institutional firewalls commonly block outbound UDP; if the tunnel
+      # will not connect after the move to campus, set
+      # TUNNEL_TRANSPORT_PROTOCOL=http2 in .env and restart this one service.
+      # No reason to force it before then — QUIC rides out packet loss better,
+      # which is worth having on the current uplink.
+      TUNNEL_TRANSPORT_PROTOCOL: ${TUNNEL_TRANSPORT_PROTOCOL:-auto}
+    depends_on:
+      - nginx
+    restart: unless-stopped
+
+
+volumes:
+  pgdata:
+  openwebui_data:

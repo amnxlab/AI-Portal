@@ -1,0 +1,54 @@
+# CoreDNS config for the AI/ML Network's local DNS server.
+#
+# Config-file only — no web setup wizard, no admin account to create, no
+# first-run flow. Every value here is set once, in this file, which is
+# what makes the whole thing scriptable end to end.
+#
+# portal.lan resolves to this machine's IP for anyone on the
+# AI/ML Network; everything else forwards to public resolvers, same as
+# any normal DNS server.
+#
+# Migrated (Nov-2026): the server now lives on Ubuntu and serves the LAN
+# domain portal.example.com (locally hosted — no public IP, so the zone is
+# authoritative only inside the network served by this DNS).
+
+{$PUBLIC_HOST}:53 {
+    hosts {
+        {$WIFI_IP} {$PUBLIC_HOST}
+        fallthrough
+    }
+    log
+    errors
+}
+
+portal.lan:53 {
+    hosts {
+        {$WIFI_IP} portal.lan
+        fallthrough
+    }
+    log
+    errors
+}
+
+.:53 {
+    # The router first, then public resolvers.
+    #
+    # 192.168.1.1 is the TP-Link, which learns the correct upstream resolver
+    # by DHCP on whatever uplink it is plugged into. Asking it first is what
+    # makes this survive a change of ISP: on a campus network that forces its
+    # own resolver and blocks outbound port 53, 1.1.1.1 stops answering and
+    # everything here would fail — while the router, which is allowed to ask,
+    # keeps working.
+    #
+    # `policy sequential` is what makes "first" mean first; the default picks
+    # at random. The public resolvers stay as a fallback for the case where
+    # the router's relay is the thing that is broken, and health_check takes
+    # a dead upstream out of rotation instead of timing out on every query.
+    forward . {$ROUTER_IP} 1.1.1.1 8.8.8.8 {
+        policy sequential
+        health_check 5s
+    }
+    cache 300
+    log
+    errors
+}

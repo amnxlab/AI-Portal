@@ -1,0 +1,420 @@
+# AI-Server: Unified Lab Management Platform — Design & Implementation Plan
+
+A full-stack, role-based lab management platform built for internal lab teams. Features include scheduling, inventory, Kanban task boards, wishlists, dashboards with Gantt/pie charts, weekly reporting with PDF export, and Discord notifications.
+
+---
+
+## System Architecture
+
+```mermaid
+graph TD
+    Browser["Browser (React SPA)"]
+    Nginx["Nginx Reverse Proxy"]
+    Backend["NestJS API + WebSocket Gateway"]
+    Postgres["PostgreSQL DB"]
+    Discord["Discord Webhooks"]
+    Uploads["File Upload Storage (local or S3)"]
+
+    Browser -- HTTPS --> Nginx
+    Nginx -- /api --> Backend
+    Nginx -- / --> Browser
+    Backend -- SQL --> Postgres
+    Backend -- axios POST --> Discord
+    Backend -- fs / S3 --> Uploads
+```
+
+**Key decisions:**
+- **NestJS** (TypeScript) over plain Express: built-in modules, Guards, Decorators, and Pipes make RBAC, validation, and testability cleaner. Can be extracted to microservices later.
+- **Monorepo** layout: `frontend/` + `backend/` in one Git repo for MVP simplicity.
+- **PostgreSQL** with `pg` / TypeORM for structured relational data.
+- **Socket.io** integrated via NestJS Gateways for real-time dashboard updates.
+- **JWT** (access token 15min, refresh token 7d, stored in httpOnly cookie).
+
+---
+
+## Folder Structure
+
+```
+AI-Server/
+├── backend/                       # NestJS app
+│   ├── src/
+│   │   ├── auth/                  # Login, JWT, refresh, RBAC guards
+│   │   ├── users/                 # User CRUD + roles
+│   │   ├── schedules/             # Schedule submission + calendar merge
+│   │   ├── inventory/             # Items, check-in/out, file uploads
+│   │   ├── projects/              # Projects + sub-projects
+│   │   ├── tasks/                 # Kanban tasks + assignments
+│   │   ├── wishlists/             # Wishlist items + budget tracking
+│   │   ├── reports/               # Weekly reports + PDF export
+│   │   ├── dashboard/             # Aggregated stats for widgets
+│   │   ├── discord/               # Webhook service (shared)
+│   │   ├── audit/                 # Audit trail logger (shared)
+│   │   ├── uploads/               # File upload handler (Multer)
+│   │   ├── realtime/              # Socket.io gateway
+│   │   ├── database/              # TypeORM config + migrations
+│   │   └── main.ts
+│   ├── test/                      # E2E tests (Jest + supertest)
+│   ├── Dockerfile
+│   ├── .env.example
+│   └── package.json
+│
+├── frontend/                      # React + Vite app
+│   ├── src/
+│   │   ├── assets/                # Logos, icons
+│   │   ├── components/            # Shared UI (Navbar, Sidebar, Widget, etc.)
+│   │   ├── pages/
+│   │   │   ├── Login/
+│   │   │   ├── Dashboard/
+│   │   │   ├── Schedule/
+│   │   │   ├── Inventory/
+│   │   │   ├── Tasks/
+│   │   │   ├── Wishlists/
+│   │   │   └── Reports/
+│   │   ├── store/                 # Zustand stores
+│   │   ├── api/                   # Axios instance + API hooks
+│   │   ├── hooks/                 # Custom hooks (useAuth, useSocket)
+│   │   ├── router/                # React Router v6 with RBAC wrappers
+│   │   └── main.tsx
+│   ├── public/
+│   │   └── AI-ML_Logo.png
+│   ├── Dockerfile
+│   ├── .env.example
+│   └── package.json
+│
+├── docker-compose.yml
+├── nginx/nginx.conf
+└── README.md
+```
+
+---
+
+## Database Schema (ERD)
+
+```sql
+-- USERS & AUTH
+users (id UUID PK, username TEXT UNIQUE, email TEXT UNIQUE,
+       password_hash TEXT, role TEXT CHECK IN ('Admin','Manager','Employee','Inventory_Manager'),
+       is_active BOOL DEFAULT true, created_at TIMESTAMPTZ)
+
+refresh_tokens (id UUID PK, user_id UUID FK→users, token TEXT, expires_at TIMESTAMPTZ)
+
+-- SCHEDULING
+schedules (id UUID PK, user_id UUID FK→users, week_start DATE,
+           shifts JSONB,   -- [{day, start, end, note}]
+           submitted_at TIMESTAMPTZ, discord_posted BOOL DEFAULT false)
+
+-- INVENTORY
+inventory_items (id UUID PK, name TEXT, category TEXT, description TEXT,
+                 quantity INT, unit TEXT, status TEXT, location TEXT,
+                 photo_url TEXT, created_by UUID FK→users, updated_at TIMESTAMPTZ)
+
+inventory_logs (id UUID PK, item_id UUID FK→inventory_items, user_id UUID FK→users,
+                action TEXT CHECK IN ('check_in','check_out','update'),
+                quantity_delta INT, notes TEXT, logged_at TIMESTAMPTZ)
+
+-- PROJECTS & TASKS
+projects (id UUID PK, name TEXT, description TEXT, status TEXT,
+          start_date DATE, end_date DATE, budget NUMERIC(12,2),
+          owner_id UUID FK→users, created_at TIMESTAMPTZ)
+
+sub_projects (id UUID PK, project_id UUID FK→projects, name TEXT, description TEXT)
+
+tasks (id UUID PK, project_id UUID FK→projects, sub_project_id UUID FK→sub_projects,
+       assignee_id UUID FK→users, created_by UUID FK→users,
+       title TEXT, description TEXT, status TEXT CHECK IN ('Todo','In Progress','Done','Blocked'),
+       priority TEXT CHECK IN ('Low','Medium','High','Critical'),
+       deadline DATE, estimated_hours NUMERIC, actual_hours NUMERIC,
+       attachments JSONB, created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ)
+
+-- WISHLISTS
+wishlist_items (id UUID PK, project_id UUID FK→projects, sub_project_id UUID FK→sub_projects,
+                item_name TEXT, description TEXT, cost NUMERIC(10,2),
+                link TEXT, status TEXT CHECK IN ('Requested','Approved','Purchased','Rejected'),
+                requested_by UUID FK→users, created_at TIMESTAMPTZ)
+
+-- WEEKLY REPORTS
+weekly_reports (id UUID PK, user_id UUID FK→users, week_start DATE,
+                tasks_hours JSONB,  -- [{task_id, task_title, hours, notes}]
+                total_hours NUMERIC, submitted_at TIMESTAMPTZ, status TEXT CHECK IN ('Draft','Submitted'))
+
+-- AUDIT TRAIL
+audit_logs (id UUID PK, actor_id UUID FK→users, entity_type TEXT,
+            entity_id UUID, action TEXT, old_value JSONB, new_value JSONB,
+            timestamp TIMESTAMPTZ DEFAULT now())
+
+-- Indexes
+CREATE INDEX idx_tasks_assignee ON tasks(assignee_id);
+CREATE INDEX idx_tasks_project ON tasks(project_id);
+CREATE INDEX idx_schedules_week ON schedules(week_start);
+CREATE INDEX idx_reports_user_week ON weekly_reports(user_id, week_start);
+CREATE INDEX idx_inventory_category ON inventory_items(category);
+CREATE INDEX idx_audit_entity ON audit_logs(entity_type, entity_id);
+```
+
+---
+
+## REST API Endpoints
+
+### Auth
+| Method | Endpoint | Access | Description |
+|--------|----------|--------|-------------|
+| POST | `/api/auth/login` | Public | Login, returns access+refresh JWTs |
+| POST | `/api/auth/refresh` | Public | Refresh access token |
+| POST | `/api/auth/logout` | Auth | Invalidate refresh token |
+| GET | `/api/auth/me` | Auth | Current user profile |
+| POST | `/api/auth/reset-password` | Public | Request password reset email |
+
+### Users (Admin only for CRUD)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/users` | List all users |
+| POST | `/api/users` | Create user |
+| PATCH | `/api/users/:id` | Update user/role |
+| DELETE | `/api/users/:id` | Deactivate user |
+
+### Schedules
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/schedules` | Employee submits shifts for a week |
+| GET | `/api/schedules?week=YYYY-MM-DD` | Get all schedules for a week (Manager+) |
+| GET | `/api/schedules/mine` | Employee's own schedules |
+| POST | `/api/schedules/post-discord/:weekStart` | Admin: push unified schedule to Discord |
+
+### Inventory
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/inventory` | Search/filter items |
+| POST | `/api/inventory` | Add item (Inventory_Manager+) |
+| PATCH | `/api/inventory/:id` | Edit item (Inventory_Manager+) |
+| DELETE | `/api/inventory/:id` | Delete item (Admin) |
+| POST | `/api/inventory/:id/checkout` | Log check-out |
+| POST | `/api/inventory/:id/checkin` | Log check-in |
+| GET | `/api/inventory/:id/logs` | View check-in/out history |
+| POST | `/api/inventory/:id/upload` | Upload photo |
+
+### Projects & Tasks
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/projects` | List projects |
+| POST | `/api/projects` | Create project (Manager+) |
+| PATCH | `/api/projects/:id` | Update project |
+| GET | `/api/tasks?project=&assignee=&status=` | Filter tasks |
+| POST | `/api/tasks` | Create task |
+| PATCH | `/api/tasks/:id` | Update task (status, assignee, etc.) |
+| DELETE | `/api/tasks/:id` | Delete task (Manager+) |
+| POST | `/api/tasks/:id/attachment` | Upload file attachment |
+
+### Wishlists
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/wishlists?project=` | List wishlist items |
+| POST | `/api/wishlists` | Add item |
+| PATCH | `/api/wishlists/:id` | Update (approve/reject by Manager) |
+| DELETE | `/api/wishlists/:id` | Delete item |
+| GET | `/api/wishlists/budget/:projectId` | Budget summary (spent vs. total) |
+
+### Weekly Reports
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/reports` | Employee submits report |
+| PATCH | `/api/reports/:id` | Update draft |
+| GET | `/api/reports/mine` | My own reports |
+| GET | `/api/reports?week=&userId=` | Admin: all reports |
+| GET | `/api/reports/export/pdf?week=` | Admin: export weekly PDF |
+| POST | `/api/reports/remind/:weekStart` | Admin: send Discord reminders |
+
+### Dashboard
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/dashboard/summary` | Aggregated stats (open tasks, inventory alerts, etc.) |
+| GET | `/api/dashboard/gantt?projectId=` | Task timeline for Gantt |
+| GET | `/api/dashboard/my` | Personal dashboard (my tasks, schedule, hours) |
+
+---
+
+## RBAC Permission Matrix
+
+| Feature | Admin | Manager | Employee | Inventory_Manager |
+|---------|-------|---------|----------|-------------------|
+| Create/edit users | ✅ | ❌ | ❌ | ❌ |
+| View all schedules | ✅ | ✅ | Own only | ✅ |
+| Post schedule to Discord | ✅ | ✅ | ❌ | ❌ |
+| Add/edit inventory | ✅ | ❌ | ❌ | ✅ |
+| View inventory | ✅ | ✅ | ✅ | ✅ |
+| Create projects/tasks | ✅ | ✅ | ❌ | ❌ |
+| Update task status | ✅ | ✅ | Own assigned | ❌ |
+| View all reports | ✅ | ✅ | Own only | ❌ |
+| Export PDF reports | ✅ | ✅ | ❌ | ❌ |
+| Send Discord reminders | ✅ | ✅ | ❌ | ❌ |
+
+---
+
+## Key GUI Wireframes (Text)
+
+### Login Page
+```
+┌─────────────────────────────────┐
+│    [AI-ML Logo]                 │
+│    Lab Management Platform      │
+│                                 │
+│  Username: [___________________]│
+│  Password: [___________________]│
+│            [  Login  ]          │
+│  Forgot password?               │
+└─────────────────────────────────┘
+```
+
+### Dashboard
+```
+┌──Sidebar──┬────────────── Main Area ────────────────────────┐
+│ Dashboard │  Welcome, Ahmed          [Filter: My / Team]    │
+│ Schedule  │  ┌──────────┐ ┌──────────┐ ┌──────────┐        │
+│ Inventory │  │ Open Tasks│ │ Low Stock│ │ Unsubmit │        │
+│ Tasks     │  │    12    │ │    3     │ │ Reports  │        │
+│ Wishlists │  └──────────┘ └──────────┘ └──────────┘        │
+│ Reports   │                                                  │
+│ [Logout]  │  ┌── Gantt Chart (Project Timeline) ──────────┐ │
+└───────────┘  │  Task A  ████████░░░░  →  Mar 10          │ │
+               │  Task B  ░░░████████░  →  Mar 15          │ │
+               └──────────────────────────────────────────┘ │
+               ┌── Task Status Pies ──┐ ┌── My Schedule ──┐  │
+               │ Todo/InProg/Done pie │ │ Mon-Fri shifts  │  │
+               └──────────────────────┘ └─────────────────┘  │
+```
+
+### Kanban Board (Tasks)
+```
+┌─ Todo ──────────┐  ┌─ In Progress ─┐  ┌─ Done ──────────┐
+│ ┌─────────────┐ │  │ ┌───────────┐ │  │ ┌─────────────┐ │
+│ │ Fix sensor  │ │  │ │ Write docs│ │  │ │ DB schema   │ │
+│ │ Assignee: A │ │  │ │ Ahmed     │ │  │ │ Ahmed ✓     │ │
+│ │ Due: Mar 5  │ │  │ └───────────┘ │  │ └─────────────┘ │
+│ └─────────────┘ │  └───────────────┘  └─────────────────┘
+│ [+ Add Task]    │
+└─────────────────┘
+```
+
+---
+
+## Discord Integration Design
+
+**Shared DiscordService** used by multiple modules:
+- **Schedules**: Post embedded weekly calendar when admin triggers `/api/schedules/post-discord`.
+- **Tasks**: On task creation/assignment → webhook POST to configured channel with task title, assignee, deadline.
+- **Reports**: On unsubmitted reports detected → DM reminder (via webhook to personal notification channel or a bot).
+
+All webhook URLs stored in `.env` per channel (e.g., `DISCORD_WEBHOOK_SCHEDULE`, `DISCORD_WEBHOOK_TASKS`).
+
+---
+
+## Security Design
+
+- **Password hashing**: `bcrypt` with cost factor 12.
+- **JWT**: Access token (15min), Refresh token (7d, httpOnly cookie, rotated on use).
+- **RBAC**: NestJS `Guards` + custom `@Roles()` decorator applied to every route.
+- **Input validation**: NestJS `class-validator` DTOs on all request bodies.
+- **SQL injection**: TypeORM parameterized queries (no raw string interpolation).
+- **Rate limiting**: `@nestjs/throttler` on auth endpoints.
+- **CORS**: Configured to allow only the frontend origin.
+- **Helmet**: HTTP security headers.
+- **File uploads**: Multer with file type + size restrictions, stored outside webroot.
+
+---
+
+## Tech Stack Summary
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend framework | React 18 + Vite + TypeScript |
+| State management | Zustand |
+| UI components | Ant Design 5 |
+| Calendar | React Big Calendar |
+| Drag-and-drop | @hello-pangea/dnd (maintained DnD fork) |
+| Charts | Recharts |
+| Real-time | Socket.io-client |
+| HTTP client | Axios |
+| Backend framework | NestJS (TypeScript) |
+| ORM | TypeORM |
+| Database | PostgreSQL 15 |
+| Auth | JWT + bcrypt + Passport.js |
+| File upload | Multer |
+| PDF export | pdf-lib |
+| Discord | axios (webhook POSTs) |
+| Containerization | Docker + docker-compose |
+
+---
+
+## Phased Roadmap
+
+### Phase 1 — Foundation (Weeks 1–2)
+- Project scaffolding, Docker setup
+- PostgreSQL schema + migrations
+- Auth system (login, JWT, RBAC middleware)
+- Login page
+- User management (Admin UI)
+
+### Phase 2 — Scheduling & Inventory (Weeks 3–4)
+- Schedule submission + calendar view
+- Discord schedule posting
+- Inventory table + add/edit + check-in/out logs
+
+### Phase 3 — Tasks & Wishlists (Weeks 5–6)
+- Kanban board (projects + tasks)
+- Task Discord notifications
+- Wishlist system + budget tracking
+- Calendar integration for tasks
+
+### Phase 4 — Dashboard & Reports (Weeks 7–8)
+- Dashboard widgets (Gantt, pie, summary cards)
+- Real-time via Socket.io
+- Weekly report form (employee) + admin view
+- PDF export of weekly reports
+- Discord report reminders
+
+### Phase 5 — Polish & Extras (Weeks 9–10)
+- Audit trails
+- File attachments everywhere
+- Time tracking
+- Mobile responsiveness
+- Full test coverage
+
+---
+
+## Verification Plan
+
+### Backend Unit & Integration Tests (Jest + Supertest)
+```bash
+cd backend
+npm run test          # Unit tests for services
+npm run test:e2e      # E2E API tests (supertest against real DB via test container)
+```
+Key test suites to write:
+- `auth.e2e-spec.ts` — login success/fail, token refresh, role guards
+- `schedules.e2e-spec.ts` — submit, retrieve, Discord post
+- `tasks.e2e-spec.ts` — CRUD, RBAC restrictions
+- `reports.e2e-spec.ts` — submit, PDF export byte length check
+
+### Frontend Component Tests (Vitest + React Testing Library)
+```bash
+cd frontend
+npm run test
+```
+- Login form renders and submits
+- Protected routes redirect unauthenticated users
+- Kanban columns render tasks correctly
+
+### Browser E2E (Cypress)
+```bash
+cd frontend
+npx cypress open   # Interactive
+npx cypress run    # Headless CI
+```
+Key flows: login → dashboard, submit schedule, create task, submit report.
+
+### Manual Verification
+1. Run `docker-compose up` and navigate to `http://localhost:3000`.
+2. Login as Admin user (seeded) — should redirect to Dashboard.
+3. Login as Employee — should only see personal views, no Admin nav items.
+4. Submit a schedule, go to Admin view, verify unified calendar populates.
+5. Create a task assigned to Employee → verify Discord notification fires.
+6. Employee submits weekly report → Admin exports PDF → verify PDF downloads.

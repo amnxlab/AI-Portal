@@ -1,0 +1,31 @@
+# OpenWebUI Development Configuration
+# Used by start-owui.sh and stop-owui.sh
+
+services:
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: aiserver_openwebui
+    ports:
+      - "0.0.0.0:9999:8080"
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - WEBUI_SECRET_KEY=changeme
+      - ENABLE_RAG_WEBSEARCH=false
+      - ENABLE_ANALYTICS=false
+      - ENABLE_MESSAGE_STREAMING=true
+      - ENABLE_ADMIN_EXPORT=true
+      - DB_TYPE=sqlite
+      - DATABASE_URL=/app/backend/data/db.sqlite3
+    volumes:
+      - openwebui_data:/app/backend/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  openwebui_data:
+    driver: local

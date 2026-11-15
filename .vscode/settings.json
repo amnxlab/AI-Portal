@@ -1,0 +1,19 @@
+{
+  "remote.portsAttributes": {
+    "5173": {
+      "label": "AI-Server Portal",
+      "protocol": "http",
+      "onAutoForward": "openBrowserOnce"
+    },
+    "4000": {
+      "label": "NestJS API",
+      "protocol": "http",
+      "onAutoForward": "silent"
+    },
+    "8080": {
+      "label": "nginx (unused in dev)",
+      "protocol": "http",
+      "onAutoForward": "ignore"
+    }
+  }
+}

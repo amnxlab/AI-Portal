@@ -1,0 +1,12 @@
+# Keeps the build context small.
+#
+# `build/` is NOT excluded: the image copies the already-compiled bundle from
+# it (see Dockerfile), so excluding it makes the image build fail with
+# "/build: not found".
+node_modules
+dist
+.vite
+*.log
+.DS_Store
+Dockerfile
+.dockerignore
