@@ -434,6 +434,37 @@ const MIGRATIONS: Migration[] = [
         `,
     },
     {
+        id: '034_notification_context',
+        sql: `
+            -- Somewhere to put what a notification is actually about: the
+            -- comment that mentioned you, the kind of file awaiting review.
+            -- The positional create() signature was full, and guessing these
+            -- in the browser is what sent manual approvals to the papers page.
+            ALTER TABLE notifications ADD COLUMN IF NOT EXISTS context JSONB;
+
+            -- Repair what is already there. Every file notification stores the
+            -- file id, and the files table knows whether that file is a manual
+            -- or a paper, so the rows can say so retrospectively.
+            -- Wrapped: a backfill is a convenience, and must never be the
+            -- reason the application cannot boot. The table is project_files,
+            -- not files, and discovering that by crash loop was avoidable.
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.tables
+                     WHERE table_schema = current_schema() AND table_name = 'project_files'
+                ) THEN
+                    UPDATE notifications n
+                       SET entity_type = f.type
+                      FROM project_files f
+                     WHERE n.entity_id = f.id
+                       AND n.entity_type IS NULL
+                       AND n.type IN ('file_pending','file_approved','file_rejected','manual_read_request');
+                END IF;
+            END $$;
+        `,
+    },
+    {
         id: '033_task_email_notifications',
         sql: `
         -- The record of who was emailed about which task, and when.

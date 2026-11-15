@@ -190,6 +190,11 @@ export class FilesController {
                         `New ${type ?? 'file'} awaiting review`,
                         `"${file.originalname}" was uploaded by ${req.user.fullName ?? req.user.username ?? 'a user'} and requires your approval before it becomes visible.`,
                         saved.id,
+                        undefined,
+                        // Which page can review it: a manual and a paper are
+                        // both files, and without this the reviewer was sent
+                        // to whichever page the frontend guessed.
+                        type ?? 'file',
                     ),
                 ),
             );
@@ -230,6 +235,8 @@ export class FilesController {
                 `Your ${file.type} has been approved ✅`,
                 `"${file.originalName}" in project "${file.project?.name ?? ''}" has been approved and is now visible to the team.`,
                 file.id,
+                undefined,
+                file.type,
             );
         }
         return approved;
@@ -249,6 +256,8 @@ export class FilesController {
                 `Your ${file.type} submission was not approved`,
                 `"${file.originalName}" in project "${file.project?.name ?? ''}" was rejected by the manager. Please revise and resubmit.`,
                 file.id,
+                undefined,
+                file.type,
             );
         }
         await this.filesService.delete(id);
@@ -309,6 +318,7 @@ export class FilesController {
                     `${req.user.username} is requesting you to read this manual.`,
                     file.id,
                     req.user.id,
+                    file.type ?? 'manual',
                 );
                 return { requested: true, message: 'Reading request sent' };
             }

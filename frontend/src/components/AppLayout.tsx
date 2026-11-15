@@ -21,7 +21,7 @@ import { alpha } from '../theme/tokens';
 
 import api from '../api/axios';
 import { getNotifCategory, type NotifCategory } from '../utils/notificationUtils';
-import { deepLink } from '../hooks/useDeepLink';
+import { notificationTarget } from '../utils/notificationTarget';
 
 const { Sider, Content, Header } = Layout;
 const { Text } = Typography;
@@ -210,38 +210,10 @@ export default function AppLayout() {
             setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, isRead: true } : x));
             setUnreadCount(prev => Math.max(0, prev - 1));
         }
-        switch (n.type) {
-            case 'comment_mention':
-                if (n.entityType === 'task')    { navigate(deepLink('/tasks', { taskId: n.entityId })); break; }
-                if (n.entityType === 'ticket')  { navigate(deepLink('/tickets', { ticketId: n.entityId })); break; }
-                if (n.entityType === 'project') { navigate(`/projects/${n.entityId ?? ''}`); break; }
-                break;
-            case 'task_assigned':
-            case 'task_updated':
-            case 'task_pending_review':
-                navigate(deepLink('/tasks', { taskId: n.entityId })); break;
-            case 'paper_read_request':
-            case 'paper_read_accepted':
-            case 'paper_read_rejected':
-                navigate(deepLink('/papers', { paperId: n.entityId })); break;
-            case 'report_approved':
-            case 'report_needs_revision':
-            case 'report_submitted':
-            case 'report_resubmitted':
-                navigate(deepLink('/reports', { reportId: n.entityId })); break;
-            case 'file_approved':
-            case 'file_rejected':
-            case 'file_pending':
-                navigate(deepLink('/files', { fileId: n.entityId })); break;
-            case 'video_pending':
-            case 'video_approved':
-            case 'video_rejected':
-                navigate('/video-tutorials', { state: { openMediaId: n.entityId } }); break;
-            case 'ticket_submitted':
-            case 'ticket_resolved':
-                navigate(deepLink('/tickets', { ticketId: n.entityId })); break;
-            default: break;
-        }
+        // One table decides this, shared with the notifications page, so a
+        // new notification type cannot be routed in one place and forgotten
+        // in the other. It always returns somewhere.
+        navigate(notificationTarget(n));
     };
 
     const handlePaperReadRequest = async (notif: any, action: 'accept' | 'reject') => {

@@ -34,6 +34,16 @@ export interface DayRow {
     } | null;
     expectedStart: Date | null;
     expectedEnd: Date | null;
+    /**
+     * The session in progress, or the most recent one. These two belong to the
+     * SAME session, which firstClockIn and lastClockOut do not: pairing those
+     * described a stretch nobody worked when a person clocked in twice.
+     */
+    clockedInAt: Date | null;
+    clockedOutAt: Date | null;
+    /** Sessions making up the day's hours. */
+    sessionCount: number;
+    /** First arrival and final departure; firstClockIn drives lateness. */
     firstClockIn: Date | null;
     lastClockOut: Date | null;
     openSession: boolean;
@@ -612,12 +622,32 @@ export class ShiftsService {
                 (a, b) => new Date(a.clockInAt).getTime() - new Date(b.clockInAt).getTime(),
             );
 
+            // Kept for lateness and status: that question is about the first
+            // arrival of the day, whatever happened afterwards.
             const firstClockIn = mine.length ? new Date(mine[0].clockInAt) : null;
             const closed = mine.filter((s) => s.clockOutAt);
             const lastClockOut = closed.length
                 ? new Date(Math.max(...closed.map((s) => new Date(s.clockOutAt!).getTime())))
                 : null;
             const openSession = mine.some((s) => s.status === 'open');
+
+            /*
+             * The session to show in the Clocked in / Clocked out columns: the
+             * one in progress, or the latest finished one.
+             *
+             * Pairing mine[0].clockInAt with the last clock-out described a
+             * stretch nobody worked. Someone who clocked in at 10:22, out at
+             * 10:22, in again at 11:05 and out at 11:06 was shown as "in 10:22,
+             * out 11:06, 0.02 hours" -- a 44-minute span with one minute of
+             * work in it.
+             */
+            const current = mine.find((x) => x.status === 'open')
+                ?? (mine.length ? mine[mine.length - 1] : null);
+            const clockedInAt = current ? new Date(current.clockInAt) : null;
+            const clockedOutAt = current && current.clockOutAt && current.status !== 'open'
+                ? new Date(current.clockOutAt)
+                : null;
+            const sessionCount = mine.length;
             const hours = round2(msToHours(mine.reduce(
                 (ms, s) => ms + overlapMs(new Date(s.clockInAt), s.clockOutAt ? new Date(s.clockOutAt) : now, iv),
                 0,
@@ -672,6 +702,15 @@ export class ShiftsService {
                     : null,
                 expectedStart,
                 expectedEnd,
+                // What the columns show: the session in progress, or the
+                // most recent one.
+                clockedInAt,
+                clockedOutAt,
+                // How many sessions make up the day's hours, so two short
+                // visits are not mistaken for one long one.
+                sessionCount,
+                // The first arrival and the final departure of the day, kept
+                // for lateness and for anything that wants the whole span.
                 firstClockIn,
                 lastClockOut,
                 openSession,

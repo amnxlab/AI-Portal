@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
+import { useDeepLinkId } from '../../hooks/useDeepLink';
 import {
     Typography, Spin, Button, Tag, Space, Select, message, Empty, Upload,
     Card, Row, Col, Badge, Popconfirm, Table, Tooltip, Input, Progress, Tabs,
@@ -85,6 +86,7 @@ export default function VideoTutorialsPage() {
     const { user } = useAuthStore();
     const { hasPermission } = usePermissions();
     const location = useLocation();
+    const deepLinkMediaId = useDeepLinkId('mediaId', 'openMediaId');
     const canManage = hasPermission('manage_projects');
     const canCreatePlaylists = hasPermission('lead_projects');
     const { t } = useTheme();
@@ -213,7 +215,10 @@ export default function VideoTutorialsPage() {
     // Deep link from notification (openMediaId + optional scrollToDiscussion)
     useEffect(() => {
         const state = location.state as any;
-        const openId = state?.openMediaId;
+        // The URL first: router state does not survive a reload or the
+        // redirect back from login, which is when notification links are
+        // usually followed.
+        const openId = deepLinkMediaId ?? state?.openMediaId;
         if (!openId) return;
         (async () => {
             try {
@@ -241,7 +246,7 @@ export default function VideoTutorialsPage() {
             } catch { /* silent */ }
         })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [location.state]);
+    }, [location.state, deepLinkMediaId]);
 
     // ── Handlers ─────────────────────────────────────────────────
     const handleSelectPlaylist = async (pl: VideoPlaylist) => {

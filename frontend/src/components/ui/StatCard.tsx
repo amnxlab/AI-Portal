@@ -19,6 +19,13 @@ interface StatCardProps {
     /** Inverts trend colouring, for metrics where down is good (spend, overdue). */
     trendInverted?: boolean;
     onClick?: () => void;
+    /**
+     * A smaller tile, for use inside another card rather than as a page's own
+     * KPI row. Same shape, about a third less height: the full-size tile was
+     * built to sit directly on a page, and three of them nested inside a
+     * dashboard card dominated everything around them.
+     */
+    compact?: boolean;
 }
 
 /**
@@ -38,6 +45,7 @@ export default function StatCard({
     trend,
     trendInverted = false,
     onClick,
+    compact = false,
 }: StatCardProps) {
     const { t } = useTheme();
     const accent = tone ?? t.accent;
@@ -63,7 +71,9 @@ export default function StatCard({
                 background: t.surface,
                 border: `1px solid ${t.border}`,
                 borderRadius: radius.lg,
-                padding: `${space.lg}px ${space.xl}px`,
+                padding: compact
+                    ? `${space.md}px ${space.md + 2}px`
+                    : `${space.lg}px ${space.xl}px`,
                 overflow: 'hidden',
                 cursor: onClick ? 'pointer' : undefined,
                 height: '100%',
@@ -77,17 +87,19 @@ export default function StatCard({
                 }}
             />
 
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: space.md }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: compact ? space.sm : space.md }}>
                 {icon && (
                     <div
                         aria-hidden
                         style={{
-                            width: 36, height: 36, flexShrink: 0,
+                            width: compact ? 26 : 36,
+                            height: compact ? 26 : 36,
+                            flexShrink: 0,
                             borderRadius: radius.md,
                             background: alpha(accent, 0.12),
                             color: accent,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: fontSize.lg,
+                            fontSize: compact ? fontSize.sm : fontSize.lg,
                         }}
                     >
                         {icon}
@@ -109,7 +121,11 @@ export default function StatCard({
                     </Text>
 
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: space.sm, marginTop: 2 }}>
-                        <Text style={{ color: t.text, fontSize: fontSize.xxl, fontWeight: 700, lineHeight: 1.2 }}>
+                        <Text style={{
+                            color: t.text,
+                            fontSize: compact ? fontSize.xl : fontSize.xxl,
+                            fontWeight: 700, lineHeight: 1.2,
+                        }}>
                             {value}
                         </Text>
                         {trend !== undefined && (
@@ -121,7 +137,11 @@ export default function StatCard({
                     </div>
 
                     {hint && (
-                        <Text style={{ color: t.textFaint, fontSize: fontSize.sm, display: 'block', marginTop: 2 }}>
+                        <Text style={{
+                            color: t.textFaint,
+                            fontSize: compact ? fontSize.xs : fontSize.sm,
+                            display: 'block', marginTop: 2,
+                        }}>
                             {hint}
                         </Text>
                     )}

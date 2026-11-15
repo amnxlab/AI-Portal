@@ -66,6 +66,9 @@ export class CommentsService {
                     dto.entityId,
                     undefined,       // requestorId
                     dto.entityType,  // entityType — enables click-to-navigate in the frontend
+                    // The comment itself, so the notification can open the
+                    // thread at the right line instead of the top of the page.
+                    { commentId: saved.id, parentId: saved.parentId ?? null },
                 );
             }
         }

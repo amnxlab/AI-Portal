@@ -6,6 +6,8 @@ import {
 import { EditOutlined, StopOutlined, PlusOutlined, ReloadOutlined, FieldTimeOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+import type { Dayjs } from 'dayjs';
+import { errorText, isValidationError } from '../../utils/errorText';
 import {
     listSessions, createSession, correctSession, voidSession,
     type SessionView,
@@ -76,10 +78,17 @@ export default function SessionsTab({ users }: { users: UserOption[] }) {
     };
 
     const submitEdit = async () => {
-        const v = await editForm.validateFields();
-        if (!editing) return;
+        // Guard, validate, act -- in that order, and all three inside the try.
+        //
+        // validateFields() rejects with a plain object when a field is wrong.
+        // It used to sit outside the try, and this function is handed straight
+        // to the modal's onOk, so that rejection escaped as an unhandled
+        // promise and reached the user as an async crash instead of "give a
+        // reason". Nothing below may throw out of this function.
+        if (saving || !editing) return;
         setSaving(true);
         try {
+            const v = await editForm.validateFields();
             await correctSession(editing.id, {
                 clockInAt: v.clockInAt ? v.clockInAt.toISOString() : undefined,
                 clockOutAt: v.clockOutAt ? v.clockOutAt.toISOString() : undefined,
@@ -89,16 +98,26 @@ export default function SessionsTab({ users }: { users: UserOption[] }) {
             message.success('Session corrected — the original times are kept in the audit trail');
             setEditing(null);
             await load();
-        } catch (e: any) {
-            message.error(e?.response?.data?.message || 'Could not correct the session');
+        } catch (e: unknown) {
+            // A validation slip is already shown beside the field; saying it
+            // again in a toast is noise. Anything else gets the server's own
+            // words, which are written for the person reading them.
+            if (!isValidationError(e)) {
+                message.error(errorText(e, 'Could not correct the session.'));
+            }
+        } finally {
+            // In a finally so the modal can never be left spinning: before
+            // this, any throw after the request left the button disabled for
+            // good and the only way out was a reload.
+            setSaving(false);
         }
-        setSaving(false);
     };
 
     const submitCreate = async () => {
-        const v = await createForm.validateFields();
+        if (saving) return;
         setSaving(true);
         try {
+            const v = await createForm.validateFields();
             await createSession({
                 userId: v.userId,
                 clockInAt: v.clockInAt.toISOString(),
@@ -110,27 +129,77 @@ export default function SessionsTab({ users }: { users: UserOption[] }) {
             setCreating(false);
             createForm.resetFields();
             await load();
-        } catch (e: any) {
-            message.error(e?.response?.data?.message || 'Could not add the session');
+        } catch (e: unknown) {
+            // A validation slip is already shown beside the field; saying it
+            // again in a toast is noise. Anything else gets the server's own
+            // words, which are written for the person reading them.
+            if (!isValidationError(e)) {
+                message.error(errorText(e, 'Could not add the session.'));
+            }
+        } finally {
+            // In a finally so the modal can never be left spinning: before
+            // this, any throw after the request left the button disabled for
+            // good and the only way out was a reload.
+            setSaving(false);
         }
-        setSaving(false);
     };
 
     const submitVoid = async () => {
-        const v = await voidForm.validateFields();
-        if (!voiding) return;
+        if (saving || !voiding) return;
         setSaving(true);
         try {
+            const v = await voidForm.validateFields();
             await voidSession(voiding.id, v.reason);
             message.success('Session voided');
             setVoiding(null);
             voidForm.resetFields();
             await load();
-        } catch (e: any) {
-            message.error(e?.response?.data?.message || 'Could not void the session');
+        } catch (e: unknown) {
+            // A validation slip is already shown beside the field; saying it
+            // again in a toast is noise. Anything else gets the server's own
+            // words, which are written for the person reading them.
+            if (!isValidationError(e)) {
+                message.error(errorText(e, 'Could not void the session.'));
+            }
+        } finally {
+            // In a finally so the modal can never be left spinning: before
+            // this, any throw after the request left the button disabled for
+            // good and the only way out was a reload.
+            setSaving(false);
         }
-        setSaving(false);
     };
+
+    /*
+     * The same three limits the server enforces, checked here so the answer
+     * arrives under the field instead of as a rejected request. Each one
+     * resolves when it has nothing to say -- Ant Design treats a rejected
+     * promise as the failure.
+     */
+    const MAX_SESSION_MS = 24 * 60 * 60 * 1000;
+    const CLOCK_SKEW_MS = 60 * 1000;
+
+    const notInFuture = () => ({
+        validator(_: unknown, value: Dayjs | null) {
+            if (!value) return Promise.resolve();
+            return value.valueOf() <= Date.now() + CLOCK_SKEW_MS
+                ? Promise.resolve()
+                : Promise.reject(new Error('That time has not happened yet.'));
+        },
+    });
+
+    const afterClockIn = ({ getFieldValue }: { getFieldValue: (n: string) => any }) => ({
+        validator(_: unknown, value: Dayjs | null) {
+            const start: Dayjs | null = getFieldValue('clockInAt');
+            if (!value || !start) return Promise.resolve();
+            if (value.valueOf() <= start.valueOf()) {
+                return Promise.reject(new Error('Clock-out must be after clock-in.'));
+            }
+            if (value.valueOf() - start.valueOf() > MAX_SESSION_MS) {
+                return Promise.reject(new Error('A session cannot be longer than 24 hours.'));
+            }
+            return Promise.resolve();
+        },
+    });
 
     const columns: ColumnsType<SessionView> = [
         {
@@ -283,12 +352,17 @@ export default function SessionsTab({ users }: { users: UserOption[] }) {
                             {editing.user?.fullName} · {dayjs(editing.clockInAt).format('ddd D MMM YYYY')}
                         </Text>
                         <Form form={editForm} layout="vertical" requiredMark={false}>
-                            <Form.Item name="clockInAt" label="Clock in" rules={[{ required: true, message: 'Required' }]}>
+                            <Form.Item
+                                name="clockInAt" label="Clock in"
+                                rules={[{ required: true, message: 'Required' }, notInFuture]}
+                            >
                                 <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: '100%' }} />
                             </Form.Item>
                             <Form.Item
                                 name="clockOutAt" label="Clock out"
                                 extra="Leave empty to keep the session open."
+                                dependencies={['clockInAt']}
+                                rules={[notInFuture, afterClockIn]}
                             >
                                 <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: '100%' }} />
                             </Form.Item>
@@ -318,10 +392,17 @@ export default function SessionsTab({ users }: { users: UserOption[] }) {
                             filterOption={(i, o) => (o?.label ?? '').toString().toLowerCase().includes(i.toLowerCase())}
                         />
                     </Form.Item>
-                    <Form.Item name="clockInAt" label="Clock in" rules={[{ required: true, message: 'Required' }]}>
+                    <Form.Item
+                                name="clockInAt" label="Clock in"
+                                rules={[{ required: true, message: 'Required' }, notInFuture]}
+                            >
                         <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: '100%' }} />
                     </Form.Item>
-                    <Form.Item name="clockOutAt" label="Clock out" rules={[{ required: true, message: 'Required' }]}>
+                    <Form.Item
+                        name="clockOutAt" label="Clock out"
+                        dependencies={['clockInAt']}
+                        rules={[{ required: true, message: 'Required' }, notInFuture, afterClockIn]}
+                    >
                         <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: '100%' }} />
                     </Form.Item>
                     <Form.Item name="mode" label="Where" initialValue="onsite">

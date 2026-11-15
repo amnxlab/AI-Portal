@@ -1197,7 +1197,12 @@ export default function DashboardPage() {
             </Row>
 
             {/* ── My Attendance (users without attendance management) ──── */}
-            {!hasPermission('manage_attendance') && <MyAttendanceCard />}
+            {/*
+              * Shown to everyone. It was hidden from anyone who can manage
+              * attendance, which meant managers could see every other
+              * person's hours and not their own. They work too.
+              */}
+            <MyAttendanceCard />
 
             {/* ── Tabs ────────────────────────────────────── */}
             <Tabs

@@ -31,14 +31,9 @@ frontend/build/
 !frontend/src/assets/**
 !backend/assets/**
 
-# npm cache for the containerised frontend build (see frontend/Dockerfile)
-.npm-cache/
-
-# Every variant of the env file, not just the bare name. A backup called
-# .env.bak-20261112 holds exactly the same secrets as .env and was, before
-# this line existed, about to be committed.
+# A backup of .env holds the same secrets as .env; the certs
+# directory holds a private key; .cf-token is the DNS API token.
 .env.*
 !.env.example
-
-# Timestamped backups left by config edits. Same reasoning.
 *.bak-*
+.cf-token

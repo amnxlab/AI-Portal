@@ -23,6 +23,12 @@ interface DayRow {
     } | null;
     expectedStart: string | null;
     expectedEnd: string | null;
+    /** The session in progress, or the most recent one: what the columns show. */
+    clockedInAt: string | null;
+    clockedOutAt: string | null;
+    /** How many sessions the day's hours are made of. */
+    sessionCount?: number;
+    /** First arrival and final departure of the day. */
     firstClockIn: string | null;
     lastClockOut: string | null;
     openSession: boolean;
@@ -182,13 +188,29 @@ export default function TodayTab() {
             key: 'in',
             width: 110,
             render: (_: any, r: DayRow) => (
-                <Text style={{
-                    color: r.lateByMinutes != null ? t.warning : t.text,
-                    fontWeight: r.firstClockIn ? 600 : 400,
-                    fontSize: 12.5,
-                }}>
-                    {clock(r.firstClockIn, tz)}
-                </Text>
+                <Tooltip
+                    title={(r.sessionCount ?? 0) > 1
+                        ? `${r.sessionCount} sessions today. First clock-in ${clock(r.firstClockIn, tz)}, `
+                          + `last clock-out ${clock(r.lastClockOut, tz)}. `
+                          + 'The times shown are the most recent session; Hours is the total of all of them.'
+                        : undefined}
+                >
+                    <div style={{ lineHeight: 1.2 }}>
+                        <Text style={{
+                            color: r.lateByMinutes != null ? t.warning : t.text,
+                            fontWeight: r.clockedInAt ? 600 : 400,
+                            fontSize: 12.5,
+                        }}>
+                            {clock(r.clockedInAt, tz)}
+                        </Text>
+                        {(r.sessionCount ?? 0) > 1 && (
+                            // Two short visits must not read as one long one.
+                            <div style={{ color: t.textMuted, fontSize: 10 }}>
+                                {r.sessionCount} sessions · 1st {clock(r.firstClockIn, tz)}
+                            </div>
+                        )}
+                    </div>
+                </Tooltip>
             ),
         },
         {
@@ -199,7 +221,7 @@ export default function TodayTab() {
                 <Text style={{ color: t.text, fontSize: 12.5 }}>
                     {r.openSession
                         ? <Tag color="green" style={{ marginInlineEnd: 0 }}>on the clock</Tag>
-                        : clock(r.lastClockOut, tz)}
+                        : clock(r.clockedOutAt, tz)}
                 </Text>
             ),
         },

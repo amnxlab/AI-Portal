@@ -24,6 +24,9 @@ export class Notification {
     /** Entity type for routing on click (e.g. 'task' | 'ticket' | 'project' | 'paper') */
     @Column({ name: 'entity_type', type: 'varchar', length: 50, nullable: true }) entityType: string | null;
 
+    /** Extra detail for the click target, e.g. { commentId } on a mention. */
+    @Column({ type: 'jsonb', nullable: true }) context: Record<string, unknown> | null;
+
     @Column({ name: 'is_read', default: false }) isRead: boolean;
 
     @CreateDateColumn({ name: 'created_at' }) createdAt: Date;

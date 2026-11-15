@@ -2,6 +2,7 @@ import { StrictMode, Component, type ErrorInfo, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { errorText, isValidationError } from './utils/errorText'
 
 // ── Global async/uncaught error capture ───────────────────────────────────────
 // ErrorBoundary only catches synchronous render errors. This catches:
@@ -17,7 +18,18 @@ window.addEventListener('error', (e) => {
 });
 
 window.addEventListener('unhandledrejection', (e) => {
-  const msg = `Unhandled rejection: ${e.reason?.message ?? String(e.reason)}`;
+  // An Ant Design form rejects with a plain object when a field is invalid.
+  // That is not a fault: the form has already marked the field, and the
+  // person is looking at it. Treating it as a crash is what produced
+  // "Unhandled Promise Rejection: [object Object]" over a missing reason.
+  if (isValidationError(e.reason)) {
+    e.preventDefault();
+    console.debug('[FormValidation]', e.reason);
+    return;
+  }
+  // Everything else is real, and is reported in words rather than as the
+  // result of String() on an object.
+  const msg = `Unhandled rejection: ${errorText(e.reason, 'an unknown error')}`;
   globalErrors.push(msg);
   console.error('[UnhandledRejection]', e.reason);
 });

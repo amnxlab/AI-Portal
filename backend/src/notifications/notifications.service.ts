@@ -21,6 +21,12 @@ export class NotificationsService {
         entityId?: string,
         requestorId?: string,
         entityType?: string,
+        /**
+         * Anything the recipient's click needs that the columns above cannot
+         * hold -- `{ commentId }` for a mention, so the page can scroll to it.
+         * Optional, so every existing caller is unaffected.
+         */
+        context?: Record<string, unknown> | null,
     ): Promise<Notification> {
         const notif = this.notifRepo.create({
             userId,
@@ -30,6 +36,7 @@ export class NotificationsService {
             entityId: entityId ?? null,
             requestorId: requestorId ?? null,
             entityType: entityType ?? null,
+            context: context ?? null,
         });
         const saved = await this.notifRepo.save(notif);
         // Push to the recipient's browser in real time via WebSocket

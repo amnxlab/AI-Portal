@@ -14,6 +14,7 @@
  *  · Real-time updates via Socket.io `comment:new` event
  */
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useDeepLinkParam } from '../hooks/useDeepLink';
 import {
     Input, Button, Select, Typography, Tooltip, Popconfirm,
     Spin, Divider, Empty, Tag, message,
@@ -215,7 +216,28 @@ function CommentBubble({
 }
 
 /* ── Main component ──────────────────────────────────────────── */
+/*
+ * The arrival tint. Deliberately a background wash and not a border: a border
+ * shifts the layout by a pixel and the whole thread twitches on arrival.
+ */
+const FLASH_STYLE: React.CSSProperties = {
+    background: 'rgba(250, 173, 20, 0.16)',
+    borderRadius: 8,
+    transition: 'background 600ms ease-out',
+    scrollMarginTop: 90,     // clears the sticky header when scrolled to
+};
+
 export default function CommentThread({ entityType, entityId, users = [] }: Props) {
+    /*
+     * The comment a notification pointed at.
+     *
+     * Read from the URL rather than router state so it survives a reload and
+     * the round trip through the login page -- which is exactly the journey a
+     * notification link takes when the session has expired.
+     */
+    const highlightId = useDeepLinkParam('commentId');
+    const [flash, setFlash] = useState<string | null>(null);
+
     const user = useAuthStore((s) => s.user);
     const { hasPermission } = usePermissions();
     const canModerate = hasPermission('manage_users'); // moderation right
@@ -318,6 +340,21 @@ export default function CommentThread({ entityType, entityId, users = [] }: Prop
 
     /* ── group: top-level vs replies ─────────────────────────── */
     const topLevel = comments.filter((c) => !c.parentId);
+    /*
+     * Scroll once the thread has rendered. The id is dropped afterwards so a
+     * later re-render does not yank the page back, and so scrolling away and
+     * returning does not re-trigger it.
+     */
+    useEffect(() => {
+        if (!highlightId || !comments.length) return;
+        const el = document.getElementById(`comment-${highlightId}`);
+        if (!el) return;                     // not on this thread, or deleted
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setFlash(highlightId);
+        const t = setTimeout(() => setFlash(null), 2600);
+        return () => clearTimeout(t);
+    }, [highlightId, comments.length]);
+
     const repliesFor = (parentId: string) => comments.filter((c) => c.parentId === parentId);
 
     /* ── render ──────────────────────────────────────────────── */
@@ -372,7 +409,11 @@ export default function CommentThread({ entityType, entityId, users = [] }: Prop
                     }}
                 >
                     {topLevel.map((comment) => (
-                        <div key={comment.id}>
+                        <div
+                            key={comment.id}
+                            id={`comment-${comment.id}`}
+                            style={flash === comment.id ? FLASH_STYLE : undefined}
+                        >
                             <CommentBubble
                                 comment={comment}
                                 currentUserId={user?.id ?? ''}
@@ -383,7 +424,11 @@ export default function CommentThread({ entityType, entityId, users = [] }: Prop
                             />
                             {/* Replies */}
                             {repliesFor(comment.id).map((reply) => (
-                                <div key={reply.id} style={{ marginTop: 8 }}>
+                                <div
+                                    key={reply.id}
+                                    id={`comment-${reply.id}`}
+                                    style={{ marginTop: 8, ...(flash === reply.id ? FLASH_STYLE : {}) }}
+                                >
                                     <CommentBubble
                                         comment={reply}
                                         currentUserId={user?.id ?? ''}

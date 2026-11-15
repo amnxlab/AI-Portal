@@ -263,7 +263,25 @@ export class RfidService {
             const last = await manager.getRepository(AttendanceRecord).findOne({
                 where: { userId: user.id }, order: { timestamp: 'DESC' },
             });
-            if (last && now.getTime() - new Date(last.timestamp).getTime() < DUPLICATE_WINDOW_S * 1000) {
+            /*
+             * What the employee asked for. Read before the duplicate window,
+             * because the window's meaning depends on it.
+             */
+            const requested = dto.intent ?? 'toggle';
+
+            /*
+             * A repeat tap is one that asks for what was just recorded.
+             *
+             * With no stated intent the reader is toggling, and a second read
+             * inside the window is almost certainly the antenna firing twice,
+             * so it is still refused. But when the employee has pressed CLOCK
+             * OUT and tapped, the direction is explicit and opposite to the
+             * last record -- that is a decision, not a bounce, and refusing it
+             * made clocking out within a minute of clocking in impossible.
+             */
+            const repeatsLastDirection = requested === 'toggle' || requested === last?.action;
+            if (last && repeatsLastDirection
+                && now.getTime() - new Date(last.timestamp).getTime() < DUPLICATE_WINDOW_S * 1000) {
                 const verb = last.action === 'clock_in' ? 'Clocked in' : 'Clocked out';
                 return finish({
                     ok: false, result: 'duplicate', title: 'Already Recorded',
@@ -284,7 +302,6 @@ export class RfidService {
              * refusal is turned into the same three-line answer as every other
              * outcome, naming them and saying what to do instead.
              */
-            const requested = dto.intent ?? 'toggle';
             let clock: Awaited<ReturnType<AttendanceService['recordClock']>>;
             try {
                 clock = await this.attendance.recordClock(manager, {

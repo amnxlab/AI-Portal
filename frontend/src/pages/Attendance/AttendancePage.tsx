@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useDeepLinkParam } from '../../hooks/useDeepLink';
 import { Tabs, Upload, Button, Alert, Typography, Space, Table, message } from 'antd';
 import { UploadOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import api from '../../api/axios';
@@ -91,7 +92,14 @@ export default function AttendancePage() {
     const { hasPermission } = usePermissions();
     const canManage = hasPermission('manage_attendance');
     const [users, setUsers] = useState<UserRow[]>([]);
-    const [tab, setTab] = useState(canManage ? 'today' : 'mine');
+    /*
+     * A shift notification names the tab it belongs to. Without this the
+     * link landed on whichever tab happened to be the default, which for
+     * a manager is Today -- not where the shift is.
+     */
+    const requestedTab = useDeepLinkParam('tab');
+    const [tab, setTab] = useState(requestedTab || (canManage ? 'today' : 'mine'));
+    useEffect(() => { if (requestedTab) setTab(requestedTab); }, [requestedTab]);
 
     useEffect(() => {
         if (!canManage) return;

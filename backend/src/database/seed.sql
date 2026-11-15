@@ -7,15 +7,6 @@
 
 -- ─── ROLES ────────────────────────────────────────────────────
 -- Single unified role. Access is configured per user (users.permissions).
--- ---------------------------------------------------------------------------
--- The password hash below is a PLACEHOLDER shared by every seeded account.
--- It is the bcrypt of:  ChangeMe123!
---
--- It exists so a fresh install can be logged into once. Change every seeded
--- password immediately after the first login, and never run this seed against
--- an installation that is reachable from outside.
--- ---------------------------------------------------------------------------
-
 INSERT INTO roles (name, label, color, is_system, permissions) VALUES
 (
   'Member', 'Lab Member', '#58a6ff', true,

@@ -1,8 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
-    Button, Card, Checkbox, Input, InputNumber, Select, Space, Table, Typography,
-    Alert, Spin, Row, Col, Tag, DatePicker, Tooltip, Popconfirm,
-    Form, Modal, Badge, Divider,
+    Alert, Badge, Button, Card, Checkbox, Col, DatePicker, Divider, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Spin, Switch, Table, Tag, Tooltip, Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -27,9 +25,15 @@ const fmt = (n: number | null | undefined) =>
     `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtHrs = (h: number) => `${h.toFixed(1)} h`;
 
+import {
+    resolveWindow, periodTotals, capStatus, isWorkingDay, WORKING_DAYS_PER_WEEK,
+} from '../simulationMath';
+
 /* ─── Data model ─────────────────────────────────────────────────────────── */
 interface WorkPeriod {
     periodId: string;
+    /** Admin allowance: bill Saturdays and Sundays as well. Default off. */
+    includeWeekends?: boolean;
     startDate: string | null;   // null = simulation start
     endDate: string | null;   // null = runs to sim end
     hourlyRate: number;
@@ -42,6 +46,12 @@ interface SimMember {
     name: string;
     defaultRate: number;
     defaultHours: number;
+    /**
+     * The person's contracted weekly limit, kept apart from defaultHours
+     * because that one is only a starting value for new periods and the user
+     * may change it. A cap you can edit is not a cap.
+     */
+    hoursCap: number;
     included: boolean;
     periods: WorkPeriod[];
 }
@@ -139,20 +149,21 @@ function runSim(members: SimMember[], balance: number, months: number, start: Da
         for (const period of m.periods) {
             // Resolve period boundaries; endDate is user-visible INCLUSIVE date,
             // so add 1 day to turn it into an exclusive upper bound for iteration.
-            const periodStart = period.startDate ? dayjs(period.startDate) : start;
-            const periodEnd   = period.endDate   ? dayjs(period.endDate).add(1, 'day') : simEnd;
+            // One definition of "which days count", shared with the table
+            // beside the chart. They disagreed before, and the table was wrong.
+            const { start: effStart, end: effEnd, days } = resolveWindow(period, start, simEnd);
+            if (days === 0) continue; // outside the simulation window
 
-            // Clamp to simulation window
-            const effStart = periodStart.isBefore(start)  ? start  : periodStart;
-            const effEnd   = periodEnd.isAfter(simEnd)     ? simEnd : periodEnd;
-
-            if (!effStart.isBefore(effEnd)) continue; // empty range — skip
-
-            const dayBurn  = period.hourlyRate * period.weeklyHours / 7;
-            const dayHours = period.weeklyHours / 7;
+            // Monday to Friday, as in the schedule and report tabs. The
+            // shared helper decides which days count; this must agree with it
+            // or the chart and the table part company again.
+            const billableDaysPerWeek = period.includeWeekends ? 7 : WORKING_DAYS_PER_WEEK;
+            const dayBurn  = period.hourlyRate * period.weeklyHours / billableDaysPerWeek;
+            const dayHours = period.weeklyHours / billableDaysPerWeek;
 
             let day = effStart;
             while (day.isBefore(effEnd)) {
+                if (!period.includeWeekends && !isWorkingDay(day)) { day = day.add(1, 'day'); continue; }
                 const key = day.format('YYYY-MM');
                 const b = buckets.get(key);
                 if (b) {
@@ -246,6 +257,12 @@ export default function SimulationTab() {
     const [laborBalance, setLaborBalance] = useState<number>(0);
     const [simMonths, setSimMonths] = useState<number>(24);
     const [simStart, setSimStart] = useState<Dayjs>(dayjs().startOf('month'));
+    /*
+     * The same end instant the engine computes, so the table and the chart
+     * clamp periods identically. Derived rather than stored: a second copy of
+     * this that could fall out of step is how the figures diverged before.
+     */
+    const simEnd = useMemo(() => simStart.add(simMonths, 'month'), [simStart, simMonths]);
     const [result, setResult] = useState<SimResult | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -282,6 +299,7 @@ export default function SimulationTab() {
                     name: u.fullName ?? '—',
                     defaultRate: Number(u.hourlyRate ?? 15),
                     defaultHours: Number(u.weeklyHoursCap ?? 0),
+                    hoursCap: Number(u.weeklyHoursCap ?? 0),
                     included: true,
                     periods: [],   // explicit-only: no default — add a period to start burning
                 }));
@@ -376,6 +394,7 @@ export default function SimulationTab() {
                 name: user ? user.fullName : (vals.customName || 'Custom employee'),
                 defaultRate: rate,
                 defaultHours: hours,
+                hoursCap: Number(user?.weeklyHoursCap ?? 0),
                 included: true,
                 periods: [{
                     periodId: uid(),
@@ -457,7 +476,12 @@ export default function SimulationTab() {
                     </td>
                     <td>$${Number(p.hourlyRate).toFixed(2)}/hr</td>
                     <td>${p.weeklyHours} h/wk</td>
-                    <td class="num">$${(p.hourlyRate * p.weeklyHours * 4.33).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo (est.)</td>
+                    <td class="num">${(() => {
+                        const pt = periodTotals(p, simStart, simEnd);
+                        return p.endDate
+                            ? `$${pt.cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} over ${pt.workingDays} working day${pt.workingDays === 1 ? '' : 's'}`
+                            : `$${pt.perMonthWhileActive.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo (open-ended)`;
+                    })()}</td>
                 </tr>`).join('');
             return `<tr><td><strong>${m.name}</strong></td><td colspan="4">${m.periods.length} period(s)</td></tr>${periodRows}`;
         }).join('');
@@ -588,12 +612,60 @@ export default function SimulationTab() {
             ),
         },
         {
-            title: '$/mo', key: 'mo', width: 100,
+            // Was "$/mo" showing rate x hours x 4.33 regardless of dates, so a
+            // three-day assignment was priced as a whole month. "Per month" is
+            // not even a meaningful unit for three days: what a budget needs
+            // is what the period costs.
+            // The allowance itself. Narrow on purpose: it is the exception,
+            // and an exception should not dominate the row it sits on.
+            title: 'Wknd', key: 'wknd', width: 62, align: 'center',
             render: (_: any, p: WorkPeriod) => (
-                <Text style={{ color: t.danger, fontSize: 12, fontWeight: 600 }}>
-                    {fmt(p.hourlyRate * p.weeklyHours * 4.33)}
-                </Text>
+                <Tooltip title={p.includeWeekends
+                    ? 'Weekends are being billed for this period. Switch off to use the Monday-to-Friday week.'
+                    : 'Monday to Friday, as in the schedule and report tabs. Switch on to budget weekend work.'}>
+                    <Switch
+                        size="small"
+                        checked={!!p.includeWeekends}
+                        onChange={(v: boolean) => updatePeriod(simId, p.periodId, { includeWeekends: v })}
+                    />
+                </Tooltip>
             ),
+        },
+        {
+            title: 'Cost', key: 'mo', width: 118,
+            render: (_: any, p: WorkPeriod) => {
+                const { days, workingDays, cost, hours, perMonthWhileActive } = periodTotals(p, simStart, simEnd);
+                const openEnded = !p.endDate;
+                // Dated, yet nothing is billed: every day of it is a weekend.
+                // Silence here is how a period that costs nothing slips into
+                // an approved budget.
+                const billsNothing = !openEnded && workingDays === 0 && p.weeklyHours > 0;
+                return (
+                    <Tooltip
+                        title={billsNothing
+                            ? 'Every day of this period falls on a weekend, so it bills nothing. '
+                              + 'Turn on the weekend allowance if that is intended.'
+                            : openEnded
+                            ? `Open-ended: ${fmt(perMonthWhileActive)} per month for as long as it runs.`
+                            : `${workingDays} working day${workingDays === 1 ? '' : 's'} `
+                              + `of ${days} calendar · ${fmtHrs(hours)} · `
+                              + `${fmt(perMonthWhileActive)}/mo while active`}
+                    >
+                        <div style={{ lineHeight: 1.25 }}>
+                            <Text style={{ color: t.danger, fontSize: 12, fontWeight: 600 }}>
+                                {fmt(openEnded ? perMonthWhileActive : cost)}
+                            </Text>
+                            <div style={{ color: billsNothing ? t.warning : t.textMuted, fontSize: 10 }}>
+                                {openEnded
+                                    ? 'per month'
+                                    : billsNothing
+                                        ? '⚠ no working days'
+                                        : `${workingDays} ${p.includeWeekends ? 'day' : 'work day'}${workingDays === 1 ? '' : 's'}`}
+                            </div>
+                        </div>
+                    </Tooltip>
+                );
+            },
         },
         {
             title: '', key: 'rm', width: 36,
@@ -646,14 +718,30 @@ export default function SimulationTab() {
             ),
         },
         {
-            title: 'Avg $/mo (est.)', key: 'base', width: 140, align: 'right',
+            // Read straight from the simulation's own per-employee totals, so
+            // this column cannot disagree with the chart. It used to price the
+            // open-ended period at 4.345 weeks a month and ignore every dated
+            // one, which for a member with only short assignments was wildly
+            // high, and for one with several overlapping periods far too low.
+            title: 'Total / avg per mo', key: 'base', width: 150, align: 'right',
             render: (_: any, r: SimMember) => {
-                const base = r.periods.reduce((best, p) =>
-                    !p.startDate && !p.endDate ? p : best, r.periods[0]);
-                // 365/12/7 ≈ 4.345 — the long-run average weeks per calendar month
+                const emp = result?.perEmployee.find(e => e.simId === r.simId);
+                if (!emp || emp.totalBurn === 0) return <Text style={{ color: t.textMuted }}>—</Text>;
+                const perMonth = emp.totalBurn / Math.max(1, simMonths);
+                const cap = capStatus(r.periods, r.hoursCap, simStart, simEnd);
                 return (
-                    <Tooltip title="Based on the open-ended period's rate × hours × 4.345 (avg weeks/month). Actual monthly burn varies by days in month and active periods.">
-                        <Text style={{ color: t.danger, fontSize: 12 }}>{base ? fmt(base.hourlyRate * base.weeklyHours * (365 / 12 / 7)) : '—'}</Text>
+                    <Tooltip title={
+                        `${fmt(emp.totalBurn)} over ${simMonths} months · ${fmtHrs(emp.totalHours)} · `
+                        + `${emp.activeDays} active day${emp.activeDays === 1 ? '' : 's'}`
+                        + (cap.over ? ` · PEAK ${cap.peak} h/wk EXCEEDS the ${cap.cap} h/wk cap` : '')
+                    }>
+                        <div style={{ lineHeight: 1.25 }}>
+                            <Text style={{ color: t.danger, fontSize: 12, fontWeight: 600 }}>{fmt(emp.totalBurn)}</Text>
+                            <div style={{ color: t.textMuted, fontSize: 10 }}>
+                                {fmt(perMonth)}/mo avg
+                                {cap.over && <span style={{ color: t.warning }}> · over cap</span>}
+                            </div>
+                        </div>
                     </Tooltip>
                 );
             },
